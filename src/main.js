@@ -80,10 +80,28 @@ const HEALTHY_TITLE_HINT = 'pok'; // matches "Pokémon Center" / "Pokemon Center
 // ---------------------------------------------------------------------------
 let result = { healthy: false, reason: 'unknown', detail: '', httpStatus: null, title: '' };
 
-const browser = await chromium.launch({
+// Route through a proxy (residential by default) so the site sees an ordinary
+// home visitor rather than a datacenter IP that Akamai blocks with a 403.
+const proxyConfiguration = await Actor.createProxyConfiguration(input.proxyConfiguration);
+const proxyUrl = proxyConfiguration ? await proxyConfiguration.newUrl() : undefined;
+
+const launchOptions = {
     headless: true,
     args: ['--no-sandbox', '--disable-blink-features=AutomationControlled'],
-});
+};
+if (proxyUrl) {
+    const u = new URL(proxyUrl);
+    launchOptions.proxy = {
+        server: `${u.protocol}//${u.hostname}:${u.port}`,
+        username: decodeURIComponent(u.username),
+        password: decodeURIComponent(u.password),
+    };
+    console.log(`Using proxy ${u.hostname}:${u.port}`);
+} else {
+    console.log('No proxy configured — using Apify datacenter IP (may be blocked).');
+}
+
+const browser = await chromium.launch(launchOptions);
 
 try {
     const context = await browser.newContext({
