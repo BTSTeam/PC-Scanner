@@ -1,0 +1,16 @@
+{
+    "actorSpecification": 1,
+    "name": "pokemoncenter-monitor",
+    "title": "Pokemon Center Monitor",
+    "description": "Visits pokemoncenter.com on a schedule and sends a Telegram alert if the page fails to load or shows a verification/captcha page.",
+    "version": "1.0",
+    "dockerfile": "../Dockerfile",
+    "input": "./input_schema.json",
+    "storages": {
+        "dataset": {
+            "actorSpecification": 1,
+            "title": "Check results",
+            "views": {}
+        }
+    }
+}
