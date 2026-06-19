@@ -1,0 +1,17 @@
+{
+    "name": "pokemoncenter-monitor",
+    "version": "1.0.0",
+    "description": "Apify actor that checks pokemoncenter.com and sends a Telegram alert if the page fails to load or hits a verification/captcha page.",
+    "type": "module",
+    "engines": {
+        "node": ">=18"
+    },
+    "dependencies": {
+        "apify": "^3.2.6",
+        "playwright": "*"
+    },
+    "scripts": {
+        "start": "node src/main.js"
+    },
+    "license": "ISC"
+}
