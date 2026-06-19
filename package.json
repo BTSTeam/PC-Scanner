@@ -8,6 +8,7 @@
     },
     "dependencies": {
         "apify": "^3.2.6",
+        "crawlee": "^3.16.0",
         "playwright": "*"
     },
     "scripts": {

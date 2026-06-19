@@ -1,5 +1,5 @@
 import { Actor } from 'apify';
-import { chromium } from 'playwright';
+import { PlaywrightCrawler } from 'crawlee';
 
 await Actor.init();
 
@@ -13,7 +13,7 @@ const targetUrl = input.targetUrl || 'https://www.pokemoncenter.com/en-gb';
 const botToken = input.telegramBotToken || process.env.TELEGRAM_BOT_TOKEN;
 const chatId = input.telegramChatId || process.env.TELEGRAM_CHAT_ID;
 const alertOnRecovery = input.alertOnRecovery !== false;
-const navigationTimeoutMs = (input.navigationTimeoutSecs || 45) * 1000;
+const navigationTimeoutSecs = input.navigationTimeoutSecs || 45;
 
 if (!botToken || !chatId) {
     throw new Error(
@@ -48,8 +48,8 @@ async function sendTelegram(text) {
 }
 
 // ---------------------------------------------------------------------------
-// Fingerprints that indicate a block / verification / captcha page rather than
-// the real store. Lower-cased before matching.
+// Fingerprints that indicate a verification / captcha page rather than the
+// real store, even when the page returns HTTP 200. Lower-cased before matching.
 // ---------------------------------------------------------------------------
 const BLOCK_MARKERS = [
     'access denied',
@@ -76,62 +76,29 @@ const BLOCK_MARKERS = [
 const HEALTHY_TITLE_HINT = 'pok'; // matches "Pokémon Center" / "Pokemon Center"
 
 // ---------------------------------------------------------------------------
-// Run the check
+// Run the check with a real (headful) fingerprinted browser. On a block,
+// Crawlee retires the session and retries through a fresh residential IP.
 // ---------------------------------------------------------------------------
-let result = { healthy: false, reason: 'unknown', detail: '', httpStatus: null, title: '' };
+let result = { healthy: false, reason: 'unknown', detail: 'Check did not complete', httpStatus: null, title: '' };
 
-// Route through a proxy (residential by default) so the site sees an ordinary
-// home visitor rather than a datacenter IP that Akamai blocks with a 403.
 const proxyConfiguration = await Actor.createProxyConfiguration(input.proxyConfiguration);
-const proxyUrl = proxyConfiguration ? await proxyConfiguration.newUrl() : undefined;
 
-const launchOptions = {
-    headless: true,
-    args: ['--no-sandbox', '--disable-blink-features=AutomationControlled'],
-};
-if (proxyUrl) {
-    const u = new URL(proxyUrl);
-    launchOptions.proxy = {
-        server: `${u.protocol}//${u.hostname}:${u.port}`,
-        username: decodeURIComponent(u.username),
-        password: decodeURIComponent(u.password),
-    };
-    console.log(`Using proxy ${u.hostname}:${u.port}`);
-} else {
-    console.log('No proxy configured — using Apify datacenter IP (may be blocked).');
-}
+const crawler = new PlaywrightCrawler({
+    proxyConfiguration,
+    // Headful via the image's virtual display — far less detectable than headless.
+    headless: false,
+    // Inject realistic browser fingerprints (this is on by default, set explicitly).
+    browserPoolOptions: { useFingerprints: true },
+    // Rotate session/IP and retry a few times if we get blocked.
+    useSessionPool: true,
+    sessionPoolOptions: { maxPoolSize: 20 },
+    maxRequestRetries: 4,
+    navigationTimeoutSecs,
+    requestHandlerTimeoutSecs: navigationTimeoutSecs + 30,
 
-const browser = await chromium.launch(launchOptions);
-
-try {
-    const context = await browser.newContext({
-        userAgent:
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-            + '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        locale: 'en-GB',
-        viewport: { width: 1366, height: 900 },
-    });
-    const page = await context.newPage();
-
-    let response;
-    try {
-        response = await page.goto(targetUrl, {
-            waitUntil: 'domcontentloaded',
-            timeout: navigationTimeoutMs,
-        });
-    } catch (err) {
-        result = {
-            healthy: false,
-            reason: 'load_failed',
-            detail: `Page did not load: ${err.message}`,
-            httpStatus: null,
-            title: '',
-        };
-    }
-
-    if (response || result.reason !== 'load_failed') {
-        const httpStatus = response ? response.status() : null;
-        // Give the page a beat to settle / render the challenge if there is one.
+    async requestHandler({ page, response }) {
+        const httpStatus = response?.status() ?? null;
+        // Give the page a beat to settle / render any challenge.
         await page.waitForTimeout(2500);
 
         const title = (await page.title().catch(() => '')) || '';
@@ -143,31 +110,33 @@ try {
         const matchedMarker = BLOCK_MARKERS.find((m) => bodyText.includes(m) || titleLower.includes(m));
 
         if (httpStatus && httpStatus >= 400) {
-            result = { healthy: false, reason: 'http_error', detail: `HTTP ${httpStatus}`, httpStatus, title };
+            // Throw so Crawlee retires the session and retries via a fresh IP.
+            throw new Error(`HTTP ${httpStatus}`);
         } else if (matchedMarker) {
-            result = {
-                healthy: false,
-                reason: 'verification_page',
-                detail: `Matched "${matchedMarker}"`,
-                httpStatus,
-                title,
-            };
+            result = { healthy: false, reason: 'verification_page', detail: `Matched "${matchedMarker}"`, httpStatus, title };
         } else if (!titleLower.includes(HEALTHY_TITLE_HINT) && bodyText.length < 500) {
-            // No block marker but page is near-empty and not the real store — treat as suspicious.
-            result = {
-                healthy: false,
-                reason: 'unexpected_page',
-                detail: `Title "${title}", body length ${bodyText.length}`,
-                httpStatus,
-                title,
-            };
+            result = { healthy: false, reason: 'unexpected_page', detail: `Title "${title}", body length ${bodyText.length}`, httpStatus, title };
         } else {
             result = { healthy: true, reason: 'ok', detail: 'Store page loaded normally', httpStatus, title };
         }
-    }
-} finally {
-    await browser.close();
-}
+    },
+
+    // Fired only after all retries are exhausted — a genuine, persistent failure.
+    async failedRequestHandler({ request }) {
+        const lastError = request.errorMessages?.slice(-1)[0] || 'unknown error';
+        const isHttp = /HTTP \d{3}/.exec(lastError);
+        result = {
+            healthy: false,
+            reason: isHttp ? 'http_error' : 'load_failed',
+            detail: `${lastError} (after ${request.retryCount} retries)`,
+            httpStatus: isHttp ? Number(isHttp[0].slice(5)) : null,
+            title: '',
+        };
+    },
+});
+
+// uniqueKey with a timestamp so repeated runs are never de-duplicated.
+await crawler.run([{ url: targetUrl, uniqueKey: `check-${Date.now()}` }]);
 
 // ---------------------------------------------------------------------------
 // Decide whether to notify (only on state changes, to avoid spam every 5 min)
