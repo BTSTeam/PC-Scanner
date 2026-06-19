@@ -25,6 +25,17 @@
             "editor": "textfield",
             "isSecret": true
         },
+        "proxyConfiguration": {
+            "title": "Proxy",
+            "type": "object",
+            "description": "Use a residential proxy so the site sees a normal UK home visitor instead of a blocked datacenter IP.",
+            "editor": "proxy",
+            "default": {
+                "useApifyProxy": true,
+                "apifyProxyGroups": ["RESIDENTIAL"],
+                "apifyProxyCountry": "GB"
+            }
+        },
         "alertOnRecovery": {
             "title": "Send an 'all good again' message after a failure",
             "type": "boolean",
