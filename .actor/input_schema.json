@@ -1,0 +1,47 @@
+{
+    "title": "Pokemon Center Monitor input",
+    "type": "object",
+    "schemaVersion": 1,
+    "properties": {
+        "targetUrl": {
+            "title": "Target URL",
+            "type": "string",
+            "description": "The page to check.",
+            "editor": "textfield",
+            "default": "https://www.pokemoncenter.com/en-gb",
+            "prefill": "https://www.pokemoncenter.com/en-gb"
+        },
+        "telegramBotToken": {
+            "title": "Telegram bot token",
+            "type": "string",
+            "description": "Token from @BotFather, e.g. 123456:ABC-DEF... Stored encrypted.",
+            "editor": "textfield",
+            "isSecret": true
+        },
+        "telegramChatId": {
+            "title": "Telegram chat ID",
+            "type": "string",
+            "description": "Your numeric chat ID (get it from @userinfobot). Stored encrypted.",
+            "editor": "textfield",
+            "isSecret": true
+        },
+        "alertOnRecovery": {
+            "title": "Send an 'all good again' message after a failure",
+            "type": "boolean",
+            "description": "If on, sends a recovery notification the first time the site is healthy again after a failure.",
+            "editor": "checkbox",
+            "default": true
+        },
+        "navigationTimeoutSecs": {
+            "title": "Page load timeout (seconds)",
+            "type": "integer",
+            "description": "How long to wait for the page before treating it as a failure.",
+            "editor": "number",
+            "default": 45,
+            "minimum": 10,
+            "maximum": 120,
+            "unit": "seconds"
+        }
+    },
+    "required": ["telegramBotToken", "telegramChatId"]
+}
